@@ -29,31 +29,32 @@ import org.symphonyoss.client.SymphonyClient;
 import org.symphonyoss.client.SymphonyClientFactory;
 import org.symphonyoss.client.model.Room;
 import org.symphonyoss.client.model.SymAuth;
-import org.symphonyoss.client.services.RoomListener;
-import org.symphonyoss.client.services.RoomMessage;
-import org.symphonyoss.client.services.RoomService;
 import org.symphonyoss.client.util.MlMessageParser;
 import org.symphonyoss.symphony.agent.model.*;
 import org.symphonyoss.symphony.clients.AuthorizationClient;
 import org.symphonyoss.symphony.clients.DataFeedClient;
 import org.symphonyoss.symphony.pod.model.Stream;
+import org.w3c.dom.Document;
+import org.xml.sax.InputSource;
 
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import java.io.*;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
 import java.util.*;
 
-import static org.symphonyoss.simplebot.Eliza.ElizaCommand.*;
-
-
-public class Eliza implements RoomListener {
-
+public class Eliza {
     private final Logger logger = LoggerFactory.getLogger(Eliza.class);
     private SymphonyClient symClient;
-    private Map<String,String> initParams = new HashMap<String,String>();
-    private RoomService roomService;
-    private Room elizaRoom;
+    private Map<String, String> initParams = new HashMap<String, String>();
     private DataFeedClient dataFeedClient;
     private Datafeed datafeed;
-    
+    private AdmAccessToken token;
+
     static Set<String> initParamNames = new HashSet<String>();
+
     static {
         initParamNames.add("sessionauth.url");
         initParamNames.add("keyauth.url");
@@ -65,7 +66,8 @@ public class Eliza implements RoomListener {
         initParamNames.add("certs.dir");
         initParamNames.add("bot.user.name");
         initParamNames.add("bot.user.email");
-        initParamNames.add("room.stream");
+        initParamNames.add("translate.clientid");
+        initParamNames.add("translate.clientsecret");
     }
 
     public static void main(String[] args) {
@@ -75,22 +77,25 @@ public class Eliza implements RoomListener {
 
     public Eliza() {
         initParams();
+        initToken();
         initAuth();
-        initRoom();
         initDatafeed();
         listenDatafeed();
-        
     }
 
     private void initParams() {
-        for(String initParam : initParamNames) {
+        for (String initParam : initParamNames) {
             String systemProperty = System.getProperty(initParam);
             if (systemProperty == null) {
                 throw new IllegalArgumentException("Cannot find system property; make sure you're using -D" + initParam + " to run Eliza");
             } else {
-                initParams.put(initParam,systemProperty);
+                initParams.put(initParam, systemProperty);
             }
         }
+    }
+
+    private void initToken() {
+        token = AdmAccessToken.getAccessToken(initParams.get("translate.clientid"), initParams.get("translate.clientsecret"));
     }
 
     private void initAuth() {
@@ -125,56 +130,99 @@ public class Eliza implements RoomListener {
             e.printStackTrace();
         }
     }
-    
-    private void initRoom() {
-        Stream stream = new Stream();
-        stream.setId(initParams.get("room.stream"));
 
+    private String parseXml(String xml) {
         try {
-         roomService = new RoomService(symClient);
-
-         elizaRoom = new Room();
-         elizaRoom.setStream(stream);
-         elizaRoom.setId(stream.getId());
-         elizaRoom.setRoomListener(this);
+            DocumentBuilderFactory documentBuilderFactory = DocumentBuilderFactory.newInstance();
+            DocumentBuilder documentBuilder = documentBuilderFactory.newDocumentBuilder();
+            Document document = documentBuilder.parse(new InputSource(new ByteArrayInputStream(xml.getBytes("utf-8"))));
+            return document.getDocumentElement().getChildNodes().item(0).getNodeValue();
         } catch (Exception e) {
-        	e.printStackTrace();
+            System.out.print(e.getLocalizedMessage());
         }
+        return null;
+    }
+
+    private String getLanguage(String text) {
+        try {
+            text = URLEncoder.encode(text);
+            URL url = new URL("http://api.microsofttranslator.com/V2/Http.svc/Detect?text=" + text);
+            return parseXml(createRequest(url));
+        } catch (Exception e) {
+
+        }
+
+        return null;
+    }
+
+    private String translate(String text) {
+        return translate(text, "en");
+    }
+
+    private String translate(String text, String language) {
+        try {
+            text = URLEncoder.encode(text);
+            URL url = new URL("http://api.microsofttranslator.com/V2/Http.svc/Translate?text=" + text + "&to=" + language);
+            return parseXml(createRequest(url));
+        } catch (Exception e) {
+
+        }
+
+        return null;
+    }
+
+    private String createRequest(URL url) {
+        HttpURLConnection connection = null;
+        try {
+            connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("GET");
+            connection.setRequestProperty("Authorization", "Bearer " + token.getAccessToken());
+
+            connection.setUseCaches(false);
+            connection.setDoOutput(true);
+
+            InputStream is = connection.getInputStream();
+            BufferedReader rd = new BufferedReader(new InputStreamReader(is));
+            StringBuilder response = new StringBuilder(); // or StringBuffer if Java version 5+
+            String line;
+            while ((line = rd.readLine()) != null) {
+                response.append(line);
+                response.append('\r');
+            }
+            rd.close();
+            String s = response.toString();
+            return s;
+        } catch (Exception e) {
+            System.out.print(e.getLocalizedMessage());
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+        return null;
     }
 
     public void initDatafeed() {
         dataFeedClient = symClient.getDataFeedClient();
         try {
-			datafeed = dataFeedClient.createDatafeed();
-		} catch (Exception e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
+            datafeed = dataFeedClient.createDatafeed();
+        } catch (Exception e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        }
     }
 
-    private MessageSubmission getMessage(String message) {
+    private MessageSubmission createMessage(String message) {
         MessageSubmission aMessage = new MessageSubmission();
         aMessage.setFormat(MessageSubmission.FormatEnum.TEXT);
         aMessage.setMessage(message);
         return aMessage;
     }
-    
-    private V2MessageSubmission getAttachmentMessage() {
-    	V2MessageSubmission message = new V2MessageSubmission();
-    	List<AttachmentInfo> attachments = new ArrayList();
-    	attachments.add(getAttachmentInfo());
-    	message.attachments(attachments);
-    	return message;
-    }
 
-    private AttachmentInfo getAttachmentInfo() {
-    	AttachmentInfo attachmentInfo = new AttachmentInfo();
-    	return attachmentInfo;
-    }
-    private void sendMessage(String message) {
-        MessageSubmission messageSubmission = getMessage(message);
+    private void sendMessage(Room room, String message) {
+        MessageSubmission messageSubmission = createMessage(message);
         try {
-            symClient.getMessageService().sendMessage(elizaRoom, messageSubmission);
+            symClient.getMessageService().sendMessage(room, messageSubmission);
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -187,6 +235,7 @@ public class Eliza implements RoomListener {
                 MessageList messages = dataFeedClient.getMessagesFromDatafeed(datafeed);
                 if (messages != null) {
                     for (Message m : messages) {
+                        m.getMessage();
                         if (!m.getFromUserId().equals(symClient.getLocalUser().getId())) {
                             processMessage(m);
                         }
@@ -205,24 +254,15 @@ public class Eliza implements RoomListener {
 
     private void processMessage(Message message) {
         String messageString = message.getMessage();
-        if(StringUtils.isNotEmpty(messageString) && StringUtils.isNotBlank(messageString)) {
+        if (StringUtils.isNotEmpty(messageString) && StringUtils.isNotBlank(messageString)) {
             MlMessageParser messageParser = new MlMessageParser();
             try {
                 messageParser.parseMessage(messageString);
                 String text = messageParser.getText();
-                if (StringUtils.startsWithIgnoreCase(text, "eliza")) {
-                    ElizaCommand cmd = getElizaCommand(text);
-                    switch (cmd) {
-                        case SAD:
-                            sendMessage("https://www.youtube.com/watch?v=mLLO2mFy4MU");
-                            break;
-                        case HUNGRY:
-                            break;
-                        case UNKNOWN:
-                            break;
-                        case HAPPY_BD:
-                            break;
-                    }
+                String language = getLanguage(text);
+                if (!language.equals("en")) {
+                    Room room = createRoom(message.getStreamId());
+                    sendMessage(room, translate(text));
                 }
             } catch (Exception e) {
                 e.printStackTrace();
@@ -230,40 +270,14 @@ public class Eliza implements RoomListener {
         }
     }
 
-    private ElizaCommand getElizaCommand(String text) {
-        if(StringUtils.containsIgnoreCase(text, "sad")) {
-            return SAD;
-        } else if (StringUtils.containsIgnoreCase(text, "happy birthday")) {
-            return HAPPY_BD;
-        } else if (StringUtils.containsIgnoreCase(text, "hungry")) {
-            return HUNGRY;
-        } else {
-            return UNKNOWN;
-        }
-    }
+    private Room createRoom(String id) {
+        Stream stream = new Stream();
+        stream.setId(id);
+        Room room = new Room();
+        room.setStream(stream);
+        room.setId(stream.getId());
 
-
-    @Override
-    public void onRoomMessage(RoomMessage roomMessage) {
-
-        Room room = roomService.getRoom(roomMessage.getId());
-
-        if(room!=null && roomMessage.getMessage() != null)
-            logger.debug("New room message detected from room: {} on stream: {} from: {} message: {}",
-                    room.getRoomDetail().getRoomAttributes().getName(),
-                    roomMessage.getRoomStream().getId(),
-                    roomMessage.getMessage().getFromUserId(),
-                    roomMessage.getMessage().getMessage()
-
-                );
-
-    }
-
-    public enum ElizaCommand {
-        SAD,
-        HAPPY_BD,
-        HUNGRY,
-        UNKNOWN
+        return room;
     }
 }
     

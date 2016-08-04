@@ -48,9 +48,9 @@
      <developers>
       <developer>
           <id>maoo</id>
-          <name>Kinkoi Lo</name>
-          <email>kinkoi.lo@gmail.com</email>
-          <url>http://github.com/kinkoi</url>
+          <name>danny</name>
+          <email>danny@symphony.com.com</email>
+          <url>http://github.com/dannychan</url>
           <organization>Symphony Communication Services, LLC</organization>
           <organizationUrl>http://symphony.com</organizationUrl>
           <timezone>+8</timezone>
@@ -60,12 +60,6 @@
       </developer>
     </developers>
 
-    <scm>
-      <connection>scm:git:git://github.com/kinkoi/eliza.git</connection>
-      <developerConnection>scm:git:git@github.com:kinkoi/eliza.git</developerConnection>
-      <url>https://github.com/kinkoi/eliza</url>
-    </scm>
-    
     <repositories>
       <repository>
         <id>ossrh</id>
@@ -81,6 +75,11 @@
             <groupId>org.symphonyoss.symphony</groupId>
             <artifactId>symphony-client</artifactId>
             <version>0.9.0-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.apis</groupId>
+            <artifactId>google-api-services-translate</artifactId>
+            <version>v2-rev47-1.22.0</version>
         </dependency>
     </dependencies>
 

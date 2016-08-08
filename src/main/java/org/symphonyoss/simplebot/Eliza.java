@@ -259,15 +259,42 @@ public class Eliza {
             try {
                 messageParser.parseMessage(messageString);
                 String text = messageParser.getText();
-                String language = getLanguage(text);
-                if (!language.equals("en")) {
+
+                String response = createResponse(text);
+                if (StringUtils.isNotEmpty(response)) {
                     Room room = createRoom(message.getStreamId());
-                    sendMessage(room, translate(text));
+                    sendMessage(room, response);
                 }
             } catch (Exception e) {
                 e.printStackTrace();
             }
         }
+    }
+
+    private String createResponse(String message) {
+        String result = null;
+        if (message.startsWith("/")) {
+            String[] parts = message.substring(1).split(" ", 2);
+            result = processCommand(parts[0], parts[1]);
+        } else {
+            String language = getLanguage(message);
+            if (!language.equals("en")) {
+                result = translate(message);
+            }
+        }
+
+        return result;
+    }
+
+    private String processCommand(String command, String message) {
+        String result = null;
+        message = message.trim();
+        if (command.equals("lang")) {
+            result = Languages.LANGUAGES;
+        } else {
+            result = translate(message, command);
+        }
+        return result;
     }
 
     private Room createRoom(String id) {
